@@ -1,17 +1,12 @@
-import urllib.error
-import urllib.request
+from flask import Flask
+
+app = Flask(__name__)
 
 
-def check_service(url="http://localhost:8080"):
-    try:
-        response = urllib.request.urlopen(url, timeout=5)
-        print(f"Status: {response.status} OK")
-        print("Response Body:\n" + response.read().decode("utf-8")[:200])
-    except urllib.error.HTTPError as e:
-        print(f"HTTP Error: {e.code} - {e.reason}")
-    except urllib.error.URLError as e:
-        print(f"Connection Failed: {e.reason}")
+@app.route("/")
+def home():
+    return "Hello from Flask running inside container!"
 
 
 if __name__ == "__main__":
-    check_service()
+    app.run(host="0.0.0.0", port=5000)
