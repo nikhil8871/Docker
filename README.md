@@ -1,2 +1,0 @@
-# Docker
-All Docker files
