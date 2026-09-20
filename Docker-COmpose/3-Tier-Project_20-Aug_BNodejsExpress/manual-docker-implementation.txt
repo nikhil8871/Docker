@@ -1,0 +1,153 @@
+============================================================
+3-TIER APPLICATION DOCKER IMPLEMENTATION GUIDE
+============================================================
+
+PREREQUISITES:
+Create the shared Docker bridge network first so containers can discover each other by name:
+CMD: docker network create docnet
+
+============================================================
+1. DATABASE TIER (MySQL Container)
+============================================================
+
+1) Run the MySQL container on the 'docnet' network:
+CMD: docker run -d --name mysql-db --network=docnet -e MYSQL_ROOT_PASSWORD=1234 -v nikhil:/var/lib/mysql -p 3306:3306 mysql:latest
+
+2) Go inside the MySQL container:
+CMD: docker exec -it mysql-db bash
+
+3) Log in to MySQL:
+mysql -u root -p
+(Enter password: 1234)
+
+4) Database and table creation:
+CREATE DATABASE webappdb;
+SHOW DATABASES;
+USE webappdb;
+
+CREATE TABLE IF NOT EXISTS transactions(
+    id INT NOT NULL AUTO_INCREMENT,
+    amount DECIMAL(10,2),
+    description VARCHAR(100),
+    PRIMARY KEY(id)
+);
+
+SHOW TABLES;
+
+INSERT INTO transactions (amount, description) VALUES ('400', 'groceries');
+SELECT * FROM transactions;
+exit;
+exit;
+
+============================================================
+2. BACKEND TIER (Node.js / Express Container)
+============================================================
+Architecture:
+- Runtime: Node.js
+- Framework: Express.js (Port 4000)
+- Database Driver: mysql2 (connects to host 'mysql-db' on port 3306)
+- Database Config: /app/DbConfig.js
+
+1) Create the Amazon Linux backend container:
+CMD: docker run -d --name backend -p 4000:4000 --network docnet amazonlinux:2023 tail -f /dev/null
+
+2) Copy the backend application code into the container:
+CMD: docker cp ./application-code/app-tier-back/. backend:/app
+
+3) Enter the backend container:
+CMD: docker exec -it backend bash
+
+4) Inside container, install Node.js and NPM:
+dnf install -y nodejs npm
+node -v
+npm -v
+
+5) Navigate to the app directory and install project dependencies:
+cd /app
+npm install
+
+6) Run the backend persistently:
+Option A (Recommended with PM2):
+npm install -g pm2
+pm2 start index.js --name "app-tier"
+pm2 save
+exit
+
+Option B (Detached Docker Exec - from Windows terminal, no PM2 required):
+docker exec -d -w /app backend node index.js
+
+NOTE ON BACKGROUND EXECUTION:
+Do NOT run 'node index.js &' inside 'docker exec -it bash'. When you type 'exit', the interactive shell terminates all background jobs of that session. Use PM2 or 'docker exec -d' instead.
+
+7) Verify the backend is responding (from host):
+curl http://localhost:4000/health
+curl http://localhost:4000/transaction
+
+============================================================
+3. FRONTEND TIER (React & Nginx Container)
+============================================================
+Architecture:
+- UI: React (Port 80)
+- Web Server: Nginx (serves /app/build static files and proxies /api/ -> http://backend:4000/)
+
+1) Create the Amazon Linux frontend container:
+CMD: docker run -d --name frontend -p 80:80 --network docnet amazonlinux:2023 tail -f /dev/null
+
+2) Copy the frontend code into the container:
+CMD: docker cp ./application-code/web-tier-Front/. frontend:/app
+
+3) Copy the custom nginx.conf into the container:
+CMD: docker cp ./application-code/nginx.conf frontend:/etc/nginx/nginx.conf
+
+IMPORTANT: In nginx.conf, ensure the index directive has a terminating semicolon:
+    location / {
+        root    /app/build;
+        index index.html index.htm;
+        try_files $uri /index.html;
+    }
+(Without the semicolon after index.htm, try_files is treated as an index argument and React SPA routing breaks with 404).
+
+4) Enter the frontend container:
+CMD: docker exec -it frontend bash
+
+5) Install Nginx, Node.js, and NPM:
+dnf install -y nginx nodejs npm
+node -v
+npm -v
+nginx -v
+
+6) Build the React production bundle:
+cd /app
+npm install
+npm run build
+
+7) Start Nginx:
+nginx
+exit
+
+8) If Nginx stops after container reboot, restart it with:
+CMD: docker exec frontend nginx
+
+============================================================
+4. IMPORTANT TROUBLESHOOTING NOTES
+============================================================
+
+A) WSL2 Port 80 Conflict (Apache):
+If you have WSL2 Ubuntu running on Windows, Apache2 may be listening on port 80 and forwarded to [::1]:80 on Windows, intercepting http://localhost.
+To disable Apache in WSL:
+CMD: wsl -u root -d Ubuntu -- systemctl stop apache2
+CMD: wsl -u root -d Ubuntu -- systemctl disable apache2
+
+B) Adding Data in Demo UI:
+- In the React table, the first input box is AMOUNT and the second is DESC.
+- AMOUNT must be numeric (e.g. 100, 25.50) because the MySQL column is DECIMAL(10,2).
+- If you enter text (e.g. 'nikhil') or leave AMOUNT blank, MySQL throws error ER_TRUNCATED_WRONG_VALUE_FOR_FIELD.
+- Always enter numbers in AMOUNT and text in DESC.
+
+============================================================
+5. VERIFICATION
+============================================================
+1. Open Browser: http://localhost/
+2. Check Health: http://localhost/health
+3. Check API Proxy: http://localhost/api/transaction
+============================================================

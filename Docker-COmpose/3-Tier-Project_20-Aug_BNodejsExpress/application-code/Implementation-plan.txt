@@ -1,0 +1,66 @@
+=================================Backend=========(Nodejs Express.js)================================
+
+Using dockerfile and docker compose for the project then throght it in AWS.
+backend(NOdejs using express.js)
+Q:why we not installing alll the files in one go here by . . instead of COPY . .
+COPY package*.json 
+The reason we copy package*.json first instead of doing COPY . . right away comes down to Docker 
+Layer Caching.In Docker, every instruction (COPY, RUN, WORKDIR) creates an immutable layer. Docker aggressively 
+caches these layers so subsequent builds are fast.If a layer changes, that layer and EVERY single 
+layer that comes after it must re-run from scratch. Docker cannot use the cache for any step below a change.
+
+**********************Question********************************************
+Q: Why not required ALLOWED_ORIGINS in backend , allowing frontend to access backend:
+Ans: app.use(cors()) Already Allows ALL Origins (*)
+Look at app-tier-back/index.js:
+const cors = require('cors');
+...
+app.use(cors());
+
+When you call cors() without any arguments, the cors package sets:
+Access-Control-Allow-Origin: *
+This is a wildcard that automatically allows every single origin (any domain or port) to make requests to the 
+backend. It was written this way for simplicity during development.
+2) Nginx Makes Everything "Same-Origin" (No CORS needed)
+In your architecture, the browser never talks directly to backend:4000.
+
+Instead, look at web-tier-Front/nginx.conf:
+# 1. Serves React Frontend on port 80
+location / {
+    root /app/build;
+    index index.html;
+}
+# 2. Proxies API calls on the same port 80 to backend
+location /api/ {
+    proxy_pass http://backend:4000/;
+}
+
+********************************************************************************
+
+
+=================================Frontend=(Nodejs React.js)=========================================
+
+Docker tutorials and industry best practices, npm ci is strongly 
+recommended for production and Docker builds, BUT it only works if you 
+already have a package-lock.json file committed in your project.
+Q: Why is npm ci recommended in Docker in the first place?
+ANs: Guarantees exact same versions (No surprises): If package.json says "react": "^18.1.0", npm install might download version 18.2.0 tomorrow. If that version has a bug, your Docker build breaks in production even though no code changed! npm ci strictly freezes every dependency to the exact version recorded in package-lock.json.
+Faster in CI/CD: npm ci skips resolving dependency versions and directly unpacks packages from the lockfile.
+Because of this, standard Docker tutorials automatically tell people: "Always use npm ci in Docker."
+
+2. So why is there NO lockfile in your web-tier-Front?
+Often in learning materials, templates, or starter projects:
+
+Whoever created or zipped the project ran git clean or added package-lock.json to .gitignore.
+Or they just provided only the bare package.json and src/ files.
+They copied a standard Dockerfile template that says RUN npm ci, without realizing that this specific folder does not have package-lock.json!
+
+3. What happens if you use npm ci right now?
+Because web-tier-Front doesn't have package-lock.json, Docker will throw this error and stop:
+
+text
+npm ERR! code ENOENT
+npm ERR! The npm ci command can only install with an existing package-lock.json
+-----------------------------------------------------------
+Docker-Compose File:
+
